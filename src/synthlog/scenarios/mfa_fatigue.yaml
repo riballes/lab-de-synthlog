@@ -1,0 +1,37 @@
+name: mfa_fatigue
+description: "Repeated MFA push notifications to exhaust user into accepting"
+schedule:
+  start_offset: "PT3H"
+  duration: "PT30M"
+parameters:
+  attacker_geo:
+    city: "Lagos"
+    state: "Lagos"
+    country: "Nigeria"
+    postal_code: "100001"
+    latitude: 6.5244
+    longitude: 3.3792
+    as_number: 29465
+    as_org: "MTN Nigeria"
+    isp: "MTN"
+    domain: "mtn.ng"
+  target_count: 1
+  push_count: 15
+  push_interval_seconds: 30
+steps:
+  - event_type: "user.session.start"
+    outcome: "SUCCESS"
+    description: "Attacker has valid credentials"
+  - event_type: "user.authentication.auth_via_mfa"
+    outcome: "FAILURE"
+    outcome_reason: "FACTOR_CHALLENGE_TIMEOUT"
+    severity: "WARN"
+    repeat_count: "$push_count"
+    description: "Repeated MFA push denials/timeouts"
+  - event_type: "user.authentication.auth_via_mfa"
+    outcome: "SUCCESS"
+    description: "User finally accepts the push"
+  - event_type: "user.authentication.sso"
+    outcome: "SUCCESS"
+    target_app_index: 0
+    description: "Attacker accesses application after MFA bypass"

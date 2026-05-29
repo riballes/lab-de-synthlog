@@ -1,0 +1,23 @@
+# Example synthlog configuration
+# These values can also be set via SYNTHLOG_ environment variables or CLI flags.
+
+seed: 42
+num_users: 10
+num_apps: 5
+num_groups: 3
+
+# Simulation time
+start_time: "2025-01-06T08:00:00Z"
+duration_hours: 8
+clock_speed: 1.0
+
+# Baseline traffic
+events_per_user_per_hour: 2.0
+
+# Scenarios to inject (builtin names or paths to YAML files)
+builtin_scenarios:
+  - credential_stuffing
+
+# Output
+emitter: jsonl
+output_path: output/events.jsonl
