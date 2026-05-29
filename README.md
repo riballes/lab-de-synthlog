@@ -6,6 +6,7 @@
 ![Linting: ruff](https://img.shields.io/badge/linting-ruff-orange)
 ![Container: Cloud Run](https://img.shields.io/badge/container-Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)
 ![IaC: Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform&logoColor=white)
+![CI/CD: GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
 
 # synthlog
 
@@ -330,6 +331,80 @@ uv run mypy src/
 # Run all checks
 uv run ruff check src/ tests/ && uv run mypy src/ && uv run pytest
 ```
+
+## CI/CD
+
+GitHub Actions runs on every push and PR:
+
+| Job | Tool | What it checks |
+|-----|------|----------------|
+| Lint | ruff | Code style and import ordering |
+| Type Check | mypy (strict) | Static type safety |
+| Test | pytest | 74 tests across all layers |
+| Docker Build | docker | Dockerfile builds successfully |
+
+**Deployment** is triggered by pushing a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This runs all CI checks, builds and pushes the Docker image to Artifact Registry, then runs `terraform apply` to update the Cloud Run deployment.
+
+### GCP Authentication (Workload Identity Federation)
+
+The pipeline uses WIF -- no service account keys stored in GitHub. One-time setup:
+
+```bash
+# Set your project (replace with your actual project ID)
+export PROJECT_ID=your-project-id
+export PROJECT_NUM=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+
+# 1. Create Workload Identity Pool
+gcloud iam workload-identity-pools create "github" \
+  --location="global" \
+  --display-name="GitHub Actions"
+
+# 2. Create OIDC Provider (replace YOUR_ORG/lab-de-synthlog with your GitHub org/repo)
+gcloud iam workload-identity-pools providers create-oidc "github" \
+  --location="global" \
+  --workload-identity-pool="github" \
+  --display-name="GitHub" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+  --attribute-condition="assertion.repository == 'YOUR_ORG/lab-de-synthlog'" \
+  --issuer-uri="https://token.actions.githubusercontent.com"
+
+# 3. Create Service Account (must specify --project to target the correct project)
+gcloud iam service-accounts create github-actions \
+  --display-name="GitHub Actions" \
+  --project=$PROJECT_ID
+
+# 4. Grant roles to the Service Account
+for role in roles/artifactregistry.writer roles/run.admin roles/iam.serviceAccountUser; do
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="$role"
+done
+
+# 5. Allow GitHub Actions to impersonate the SA (replace YOUR_ORG/lab-de-synthlog)
+gcloud iam service-accounts add-iam-policy-binding \
+  github-actions@$PROJECT_ID.iam.gserviceaccount.com \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUM/locations/global/workloadIdentityPools/github/attribute.repository/YOUR_ORG/lab-de-synthlog"
+```
+
+### Required GitHub Repository Variables
+
+Set in Settings > Secrets and Variables > Variables:
+
+| Variable | Description |
+|----------|-------------|
+| `GCP_PROJECT_ID` | GCP project ID |
+| `GCP_REGION` | Region (e.g., `us-central1`) |
+| `WIF_PROVIDER` | WIF provider resource name |
+| `WIF_SERVICE_ACCOUNT` | Service account email |
+| `TF_STATE_BUCKET` | GCS bucket for Terraform state |
 
 ## Supported Event Types
 

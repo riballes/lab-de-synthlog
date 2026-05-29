@@ -42,3 +42,4 @@ Thumbs.db
 
 # Environment
 .env
+generate_api_key.py
