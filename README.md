@@ -23,19 +23,19 @@ A synthetic log event producer for **detection engineering**, SIEM rule testing,
 
 ```bash
 # Install
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Generate 8 hours of synthetic events for 5 users with a credential stuffing attack
-synthlog generate --seed 42 --users 5 --duration 8 --scenario credential_stuffing -o output/events.jsonl
+uv run synthlog generate --seed 42 --users 5 --duration 8 --scenario credential_stuffing -o output/events.jsonl
 
 # Pretty-print to console
-synthlog generate --emitter console --duration 1
+uv run synthlog generate --emitter console --duration 1
 
 # Create and persist an entity pool
-synthlog init-pool --seed 42 --users 10 -o pool.json
+uv run synthlog init-pool --seed 42 --users 10 -o pool.json
 
 # List supported event types
-synthlog list-events
+uv run synthlog list-events
 ```
 
 ## Project Structure
@@ -180,7 +180,7 @@ class KafkaEmitter:
 kafka = "your_package.emitter:KafkaEmitter"
 ```
 
-Then use it: `synthlog generate --emitter kafka`
+Then use it: `uv run synthlog generate --emitter kafka`
 
 ## Configuration
 
@@ -216,19 +216,19 @@ gcloud run jobs execute synthlog-generator --region us-central1
 
 ```bash
 # Install with dev dependencies
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Run tests
-pytest -v
+uv run pytest -v
 
 # Lint
-ruff check src/ tests/
+uv run ruff check src/ tests/
 
 # Type check
-mypy src/
+uv run mypy src/
 
 # Run all checks
-ruff check src/ tests/ && mypy src/ && pytest
+uv run ruff check src/ tests/ && uv run mypy src/ && uv run pytest
 ```
 
 ## Supported Event Types
