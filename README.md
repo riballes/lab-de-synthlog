@@ -1,6 +1,7 @@
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests: 53 passing](https://img.shields.io/badge/tests-53%20passing-brightgreen)
+![Tests: 74 passing](https://img.shields.io/badge/tests-74%20passing-brightgreen)
+![API: FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![Type Checked: mypy strict](https://img.shields.io/badge/type%20checked-mypy%20strict-blue)
 ![Linting: ruff](https://img.shields.io/badge/linting-ruff-orange)
 ![Container: Cloud Run](https://img.shields.io/badge/container-Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)
@@ -16,8 +17,10 @@ A synthetic log event producer for **detection engineering**, SIEM rule testing,
 - **Baseline traffic** -- Time-of-day weighted workday patterns (login bursts at 9am, quiet at 3am, reduced weekends)
 - **Attack scenario injection** -- YAML-defined attack patterns (credential stuffing, MFA fatigue) layered on top of baseline noise
 - **Deterministic output** -- Seedable RNG produces byte-for-byte identical output for regression testing
+- **REST API** -- FastAPI service with async job management, mock IdP log endpoint (`GET /api/v1/logs` with pagination), and API key auth
+- **Streaming mode** -- Real-time event emission paced by clock speed multiplier; traffic patterns preserved for event hub integration (Kafka, etc.)
 - **Plugin-based sinks** -- Built-in JSONL and console emitters; external sinks (Kafka, Splunk HEC, etc.) via Python entry points
-- **Cloud Run ready** -- Dockerfile and Terraform for GCP Cloud Run Job deployment with optional Cloud Scheduler trigger
+- **Cloud Run ready** -- Dockerfile and Terraform for GCP Cloud Run deployment with optional Cloud Scheduler trigger
 
 ## Quickstart
 
@@ -36,6 +39,90 @@ uv run synthlog init-pool --seed 42 --users 10 -o pool.json
 
 # List supported event types
 uv run synthlog list-events
+
+# Stream events in real-time (1 hour of sim time in 1 minute)
+uv run synthlog stream --speed 60 --emitter console --duration 1
+
+# Start the REST API server
+SYNTHLOG_API_KEY=your-secret-key uv run synthlog serve --port 8080
+```
+
+## REST API
+
+Start the server:
+
+```bash
+SYNTHLOG_API_KEY=your-secret-key uv run synthlog serve --port 8080
+```
+
+Interactive docs at `http://localhost:8080/docs`.
+
+All `/api/*` endpoints require the `X-API-Key` header. `/health` is unauthenticated.
+
+```bash
+# Start a batch generation job
+curl -X POST http://localhost:8080/api/generate \
+  -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"seed": 42, "num_users": 5, "duration_hours": 2, "mode": "batch"}'
+
+# Start a streaming job (8h of traffic compressed into ~8 seconds)
+curl -X POST http://localhost:8080/api/generate \
+  -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"seed": 42, "num_users": 5, "duration_hours": 8, "mode": "streaming", "speed": 3600}'
+
+# Check job status
+curl -H "X-API-Key: your-secret-key" http://localhost:8080/api/jobs/{job_id}
+
+# Download events as JSONL
+curl -H "X-API-Key: your-secret-key" http://localhost:8080/api/jobs/{job_id}/events
+
+# Mock IdP endpoint with pagination (Link header with rel="next")
+curl -H "X-API-Key: your-secret-key" "http://localhost:8080/api/v1/logs?limit=10"
+
+# Stop a streaming job
+curl -X POST -H "X-API-Key: your-secret-key" http://localhost:8080/api/jobs/{job_id}/stop
+
+# List available scenarios
+curl -H "X-API-Key: your-secret-key" http://localhost:8080/api/scenarios
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check (no auth) |
+| POST | `/api/generate` | Start batch or streaming generation job |
+| GET | `/api/jobs` | List all jobs |
+| GET | `/api/jobs/{id}` | Job status (event_count updates live for streaming) |
+| GET | `/api/jobs/{id}/events` | Download events as JSONL |
+| POST | `/api/jobs/{id}/stop` | Stop a streaming job |
+| DELETE | `/api/jobs/{id}` | Delete a job |
+| GET | `/api/v1/logs` | Mock IdP log endpoint with cursor pagination |
+| GET | `/api/scenarios` | List available attack scenarios |
+| GET | `/api/event-types` | List supported event types |
+
+## Streaming Mode
+
+Stream events paced to match simulated timestamps. The `speed` parameter controls time compression:
+
+| Speed | 8h workday takes | Use case |
+|-------|-------------------|----------|
+| `1.0` | 8 hours | Real-time simulation |
+| `60.0` | 8 minutes | Demo / development |
+| `3600.0` | 8 seconds | Testing |
+
+Traffic patterns are preserved regardless of speed -- events cluster during business hours and thin out overnight.
+
+```bash
+# CLI: stream to console at 60x speed
+uv run synthlog stream --speed 60 --emitter console --duration 8
+
+# API: start streaming job that pushes to an external sink
+curl -X POST http://localhost:8080/api/generate \
+  -H "X-API-Key: key" -H "Content-Type: application/json" \
+  -d '{"mode": "streaming", "speed": 60, "emitter": "kafka"}'
 ```
 
 ## Project Structure
@@ -75,12 +162,22 @@ lab-de-synthlog/
 │   │   ├── factory.py                    #   EntityFactory (Faker + seed)
 │   │   └── pool.py                       #   EntityPool (registry + JSON persistence)
 │   │
+│   ├── api/                              # REST API (FastAPI)
+│   │   ├── app.py                        #   App factory, lifespan, CORS
+│   │   ├── auth.py                       #   API key auth dependency
+│   │   ├── models.py                     #   Request/response Pydantic models
+│   │   ├── job_manager.py                #   In-memory job store + batch/streaming runner
+│   │   ├── routes_generate.py            #   POST /generate, GET/DELETE /jobs
+│   │   ├── routes_logs.py                #   GET /api/v1/logs (mock IdP endpoint)
+│   │   └── routes_meta.py               #   GET /health, /scenarios, /event-types
+│   │
 │   ├── engine/                           # Layer 2: "The Behavior"
 │   │   ├── protocols.py                  #   Scenario and Emitter protocol definitions
 │   │   ├── event_builder.py              #   Builds LogEvent from entities + event type
 │   │   ├── baseline.py                   #   BaselineTraffic (workday patterns)
 │   │   ├── scenario_loader.py            #   YAML DSL parser
-│   │   ├── scheduler.py                  #   EventScheduler (heapq.merge by timestamp)
+│   │   ├── scheduler.py                  #   EventScheduler (batch, heapq.merge)
+│   │   ├── streaming.py                  #   StreamingScheduler (real-time paced)
 │   │   └── rng.py                        #   Seeded RNG manager
 │   │
 │   ├── scenarios/                        # Built-in attack scenario YAML files
@@ -102,7 +199,7 @@ lab-de-synthlog/
 │   ├── scheduler.tf                      #   Optional Cloud Scheduler trigger
 │   └── terraform.tfvars.example          #   Example variable values
 │
-├── tests/                                # 53 tests across all layers
+├── tests/                                # 74 tests across all layers
 │   ├── conftest.py
 │   ├── test_schema/
 │   │   └── test_log_event.py             #   Serialization, camelCase keys, roundtrip
@@ -111,9 +208,12 @@ lab-de-synthlog/
 │   ├── test_engine/
 │   │   ├── test_event_builder.py         #   Event construction, targets, determinism
 │   │   ├── test_baseline.py              #   Traffic volume, ordering, weekday/weekend
-│   │   └── test_scenario_loader.py       #   YAML loading, failure sequences
-│   └── test_emitter/
-│       └── test_jsonl.py                 #   JSONL write/read, plugin loader
+│   │   ├── test_scenario_loader.py       #   YAML loading, failure sequences
+│   │   └── test_streaming.py             #   Streaming pacing, stop signal, determinism
+│   ├── test_emitter/
+│   │   └── test_jsonl.py                 #   JSONL write/read, plugin loader
+│   └── test_api/
+│       └── test_api.py                   #   Auth, jobs, pagination, streaming, mock IdP
 │
 └── examples/
     └── config.yaml                       # Example run configuration
@@ -215,8 +315,8 @@ gcloud run jobs execute synthlog-generator --region us-central1
 ## Development
 
 ```bash
-# Install with dev dependencies
-uv pip install -e ".[dev]"
+# Install with dev + server dependencies
+uv pip install -e ".[server,dev]"
 
 # Run tests
 uv run pytest -v

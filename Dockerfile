@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[server]"
 
 # Runtime stage
 FROM python:3.11-slim
@@ -17,5 +17,7 @@ COPY src/ src/
 
 ENV PYTHONUNBUFFERED=1
 
+EXPOSE 8080
+
 ENTRYPOINT ["synthlog"]
-CMD ["generate"]
+CMD ["serve", "--port", "8080"]
