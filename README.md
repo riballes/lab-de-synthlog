@@ -406,6 +406,17 @@ Set in Settings > Secrets and Variables > Variables:
 | `WIF_SERVICE_ACCOUNT` | Service account email |
 | `TF_STATE_BUCKET` | GCS bucket for Terraform state |
 
+### Release Commands
+
+```bash
+make version        # Show current and next versions
+make release        # Bump patch: v0.1.0 -> v0.1.1
+make release-minor  # Bump minor: v0.1.x -> v0.2.0
+make release-major  # Bump major: v0.x.x -> v1.0.0
+make retry          # Re-push latest tag to retrigger deploy
+make check          # Run lint + typecheck + tests locally
+```
+
 ## Supported Event Types
 
 | Event Type | Severity | Description |
