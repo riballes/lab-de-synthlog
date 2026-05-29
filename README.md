@@ -297,20 +297,21 @@ Settings can be provided via CLI flags, environment variables (`SYNTHLOG_` prefi
 
 ## Cloud Run Deployment
 
+Automated via CI/CD on tag push (see [CI/CD](#cicd) below). To deploy manually:
+
 ```bash
 # Build and push
-docker build -t us-central1-docker.pkg.dev/PROJECT/synthlog/synthlog:latest .
-docker push us-central1-docker.pkg.dev/PROJECT/synthlog/synthlog:latest
+IMAGE=us-central1-docker.pkg.dev/PROJECT/synthlog/synthlog
+docker build -t $IMAGE:latest .
+docker push $IMAGE:latest
 
-# Deploy with Terraform
-cd infra
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your project ID
-terraform init
-terraform apply
-
-# Trigger manually
-gcloud run jobs execute synthlog-generator --region us-central1
+# Deploy to Cloud Run
+gcloud run deploy synthlog \
+  --image=$IMAGE:latest \
+  --region=us-central1 \
+  --platform=managed \
+  --port=8080 \
+  --set-env-vars="SYNTHLOG_API_KEY=your-secret-key"
 ```
 
 ## Development
@@ -343,11 +344,10 @@ GitHub Actions runs on every push and PR:
 | Test | pytest | 74 tests across all layers |
 | Docker Build | docker | Dockerfile builds successfully |
 
-**Deployment** is triggered by pushing a version tag:
+**Deployment** is triggered by pushing a version tag. The pipeline builds the Docker image, pushes it to Artifact Registry, and deploys to Cloud Run via `gcloud run deploy`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+make release  # or: git tag v0.1.0 && git push origin v0.1.0
 ```
 
 This runs all CI checks, builds and pushes the Docker image to Artifact Registry, then runs `terraform apply` to update the Cloud Run deployment.
@@ -396,7 +396,9 @@ gcloud iam service-accounts add-iam-policy-binding \
 
 ### Required GitHub Repository Variables
 
-Set in Settings > Secrets and Variables > Variables:
+Set in Settings > Secrets and Variables:
+
+**Variables:**
 
 | Variable | Description |
 |----------|-------------|
@@ -404,7 +406,12 @@ Set in Settings > Secrets and Variables > Variables:
 | `GCP_REGION` | Region (e.g., `us-central1`) |
 | `WIF_PROVIDER` | WIF provider resource name |
 | `WIF_SERVICE_ACCOUNT` | Service account email |
-| `TF_STATE_BUCKET` | GCS bucket for Terraform state |
+
+**Secrets:**
+
+| Secret | Description |
+|--------|-------------|
+| `SYNTHLOG_API_KEY` | API key passed to Cloud Run as env var |
 
 ### Release Commands
 
